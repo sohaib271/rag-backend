@@ -1,0 +1,322 @@
+[
+  {
+    "id": "basic-001",
+    "companyId": "15",
+    "sourceDocument": "GBA Info",
+    "category": "company-details",
+    "question": "What is the name of the company and what type of business is it?",
+    "expectedSection": "Company Basic Details",
+    "expectedFacts": ["Ghani Branding Agency", "Marketing Agency"],
+    "shouldAnswer": true
+  },
+  {
+    "id": "contact-001",
+    "companyId": "15",
+    "sourceDocument": "GBA Info",
+    "category": "contact",
+    "question": "What is the primary contact number?",
+    "expectedSection": "Company Basic Details",
+    "expectedFacts": ["0325-4426426"],
+    "shouldAnswer": true
+  },
+  {
+    "id": "contact-002",
+    "companyId": "15",
+    "sourceDocument": "GBA Info",
+    "category": "contact",
+    "question": "How can I contact the agency for an urgent follow-up?",
+    "expectedSection": "Quick Answers for Direct Bot Replies",
+    "expectedFacts": ["03064876246"],
+    "shouldAnswer": true
+  },
+  {
+    "id": "contact-003",
+    "companyId": "15",
+    "sourceDocument": "GBA Info",
+    "category": "contact",
+    "question": "What is Ghani Branding Agency's email address?",
+    "expectedSection": "Company Basic Details",
+    "expectedFacts": ["ghaniagency@gmail.com"],
+    "shouldAnswer": true
+  },
+  {
+    "id": "location-001",
+    "companyId": "15",
+    "sourceDocument": "GBA Info",
+    "category": "location",
+    "question": "Where is the agency located?",
+    "expectedSection": "Company Basic Details",
+    "expectedFacts": ["2nd floor", "ZR Center", "Bakhtay Wala", "Gujranwala"],
+    "shouldAnswer": true
+  },
+  {
+    "id": "location-002",
+    "companyId": "15",
+    "sourceDocument": "GBA Info",
+    "category": "location",
+    "question": "Apki agency kahan located hai?",
+    "expectedSection": "Company Basic Details",
+    "expectedFacts": ["ZR Center", "Grand Trunk Rd", "Gujranwala"],
+    "shouldAnswer": true
+  },
+  {
+    "id": "services-001",
+    "companyId": "15",
+    "sourceDocument": "GBA Info",
+    "category": "services",
+    "question": "What services do you provide?",
+    "expectedSection": "Services",
+    "expectedFacts": ["Brand Consultation", "Logo Design", "Social Media Marketing", "Website Development", "SEO Services"],
+    "shouldAnswer": true
+  },
+  {
+    "id": "services-002",
+    "companyId": "15",
+    "sourceDocument": "GBA Info",
+    "category": "services",
+    "question": "Logo design karwa sakta hun?",
+    "expectedSection": "Services",
+    "expectedFacts": ["Custom logo design", "professional", "brand identity"],
+    "shouldAnswer": true
+  },
+  {
+    "id": "services-003",
+    "companyId": "15",
+    "sourceDocument": "GBA Info",
+    "category": "services",
+    "question": "Do you create complete brand identities, not just logos?",
+    "expectedSection": "Services",
+    "expectedFacts": ["color palette", "typography", "brand guidelines"],
+    "shouldAnswer": true
+  },
+  {
+    "id": "services-004",
+    "companyId": "15",
+    "sourceDocument": "GBA Info",
+    "category": "services",
+    "question": "Which social media platforms can the agency help with?",
+    "expectedSection": "Services",
+    "expectedFacts": ["Facebook", "Instagram"],
+    "shouldAnswer": true
+  },
+  {
+    "id": "services-005",
+    "companyId": "15",
+    "sourceDocument": "GBA Info",
+    "category": "services",
+    "question": "Can you design and develop a responsive business website?",
+    "expectedSection": "Services",
+    "expectedFacts": ["Website Design", "responsive", "functional websites"],
+    "shouldAnswer": true
+  },
+  {
+    "id": "services-006",
+    "companyId": "15",
+    "sourceDocument": "GBA Info",
+    "category": "services",
+    "question": "How can your SEO service help my website?",
+    "expectedSection": "Services",
+    "expectedFacts": ["website visibility", "search ranking", "keywords", "organic traffic"],
+    "shouldAnswer": true
+  },
+  {
+    "id": "services-007",
+    "companyId": "15",
+    "sourceDocument": "GBA Info",
+    "category": "services",
+    "question": "Do you offer video editing and product photography?",
+    "expectedSection": "Services",
+    "expectedFacts": ["video editing", "product photography"],
+    "shouldAnswer": true
+  },
+  {
+    "id": "timings-001",
+    "companyId": "15",
+    "sourceDocument": "GBA Info",
+    "category": "timings",
+    "question": "What are your working days and hours?",
+    "expectedSection": "Timings and Availability",
+    "expectedFacts": ["Saturday to Thursday", "11:00 AM to 8:00 PM"],
+    "shouldAnswer": true
+  },
+  {
+    "id": "timings-002",
+    "companyId": "15",
+    "sourceDocument": "GBA Info",
+    "category": "timings",
+    "question": "Can I get emergency support outside normal service questions?",
+    "expectedSection": "Timings and Availability",
+    "expectedFacts": ["Emergency support", "available by phone"],
+    "shouldAnswer": true
+  },
+  {
+    "id": "pricing-001",
+    "companyId": "15",
+    "sourceDocument": "GBA Info",
+    "category": "pricing",
+    "question": "How much does logo design cost?",
+    "expectedSection": "Pricing and Packages",
+    "expectedFacts": ["selected service", "project scope", "delivery timeline", "quotation"],
+    "shouldAnswer": true
+  },
+  {
+    "id": "pricing-002",
+    "companyId": "15",
+    "sourceDocument": "GBA Info",
+    "category": "pricing",
+    "question": "Social media marketing packages kya hain?",
+    "expectedSection": "Pricing and Packages",
+    "expectedFacts": ["contact Ghani Branding Agency", "package options", "quotation"],
+    "shouldAnswer": true
+  },
+  {
+    "id": "booking-001",
+    "companyId": "15",
+    "sourceDocument": "GBA Info",
+    "category": "booking",
+    "question": "What information do I need to provide to book a service?",
+    "expectedSection": "Booking Process",
+    "expectedFacts": ["full name", "phone number", "business name", "required service", "preferred start date"],
+    "shouldAnswer": true
+  },
+  {
+    "id": "booking-002",
+    "companyId": "15",
+    "sourceDocument": "GBA Info",
+    "category": "booking",
+    "question": "Can I send reference designs when making a booking?",
+    "expectedSection": "Booking Process",
+    "expectedFacts": ["reference designs", "brand details", "social media links", "website requirements"],
+    "shouldAnswer": true
+  },
+  {
+    "id": "delivery-001",
+    "companyId": "15",
+    "sourceDocument": "GBA Info",
+    "category": "project-delivery",
+    "question": "When will I receive the final project files?",
+    "expectedSection": "Reports and Results",
+    "expectedFacts": ["after approval", "payment confirmation"],
+    "shouldAnswer": true
+  },
+  {
+    "id": "delivery-002",
+    "companyId": "15",
+    "sourceDocument": "GBA Info",
+    "category": "project-delivery",
+    "question": "Can project updates and design previews be sent through WhatsApp?",
+    "expectedSection": "Reports and Results",
+    "expectedFacts": ["Design previews", "WhatsApp", "email"],
+    "shouldAnswer": true
+  },
+  {
+    "id": "payment-001",
+    "companyId": "15",
+    "sourceDocument": "GBA Info",
+    "category": "payments",
+    "question": "Which payment methods do you accept?",
+    "expectedSection": "Payment Methods",
+    "expectedFacts": ["cash", "bank transfer", "JazzCash", "Easypaisa"],
+    "shouldAnswer": true
+  },
+  {
+    "id": "payment-002",
+    "companyId": "15",
+    "sourceDocument": "GBA Info",
+    "category": "payments",
+    "question": "Do I need to pay anything before the project starts?",
+    "expectedSection": "Payment Methods",
+    "expectedFacts": ["advance payment", "before starting the service"],
+    "shouldAnswer": true
+  },
+  {
+    "id": "payment-003",
+    "companyId": "15",
+    "sourceDocument": "GBA Info",
+    "category": "payments",
+    "question": "When must the remaining project payment be cleared?",
+    "expectedSection": "Payment Methods",
+    "expectedFacts": ["before final file delivery", "website handover", "campaign completion"],
+    "shouldAnswer": true
+  },
+  {
+    "id": "policy-001",
+    "companyId": "15",
+    "sourceDocument": "GBA Info",
+    "category": "policies",
+    "question": "Does the agency guarantee a specific number of sales or leads?",
+    "expectedSection": "Policies",
+    "expectedFacts": ["does not guarantee", "sales", "leads", "ranking results"],
+    "shouldAnswer": true
+  },
+  {
+    "id": "policy-002",
+    "companyId": "15",
+    "sourceDocument": "GBA Info",
+    "category": "policies",
+    "question": "Will additional changes be free after the project is approved and delivered?",
+    "expectedSection": "Policies",
+    "expectedFacts": ["additional changes", "charged separately"],
+    "shouldAnswer": true
+  },
+  {
+    "id": "policy-003",
+    "companyId": "15",
+    "sourceDocument": "GBA Info",
+    "category": "policies",
+    "question": "What factors can cause the project timeline to change?",
+    "expectedSection": "Policies",
+    "expectedFacts": ["revisions", "client response time", "workload", "technical requirements"],
+    "shouldAnswer": true
+  },
+  {
+    "id": "audience-001",
+    "companyId": "15",
+    "sourceDocument": "GBA Info",
+    "category": "company-profile",
+    "question": "What types of businesses is the agency suitable for?",
+    "expectedSection": "About the Company",
+    "expectedFacts": ["startups", "small businesses", "online stores", "service providers"],
+    "shouldAnswer": true
+  },
+  {
+    "id": "unknown-001",
+    "companyId": "15",
+    "sourceDocument": "GBA Info",
+    "category": "unanswerable",
+    "question": "Does the agency offer mobile application development?",
+    "expectedSection": null,
+    "expectedFacts": [],
+    "shouldAnswer": false
+  },
+  {
+    "id": "unknown-002",
+    "companyId": "15",
+    "sourceDocument": "GBA Info",
+    "category": "unanswerable",
+    "question": "What is the agency's refund policy?",
+    "expectedSection": null,
+    "expectedFacts": [],
+    "shouldAnswer": false
+  },
+  {
+    "id": "unknown-003",
+    "companyId": "15",
+    "sourceDocument": "GBA Info",
+    "category": "unanswerable",
+    "question": "How many employees work at Ghani Branding Agency?",
+    "expectedSection": null,
+    "expectedFacts": [],
+    "shouldAnswer": false
+  },
+  {
+    "id": "unknown-004",
+    "companyId": "15",
+    "sourceDocument": "GBA Info",
+    "category": "unanswerable",
+    "question": "Do you provide services to customers outside Pakistan?",
+    "expectedSection": null,
+    "expectedFacts": [],
+    "shouldAnswer": false
+  }
+]
