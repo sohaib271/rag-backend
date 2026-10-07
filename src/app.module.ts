@@ -3,6 +3,7 @@ import { AppController } from './app.controller.js';
 import { AppService } from './app.service.js';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { CompanyModule } from './company/company.module.js';
+import { MalwareService } from './malware/malware.service.js';
 
 @Module({
   imports: [
@@ -19,6 +20,6 @@ import { CompanyModule } from './company/company.module.js';
     CompanyModule,
   ],
   controllers: [AppController],
-  providers: [AppService],
+  providers: [AppService, MalwareService],
 })
 export class AppModule {}
