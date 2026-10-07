@@ -8,11 +8,13 @@ import { Documentdata } from './dto/document-chunk.dto.js';
 import { getEmbeddings } from './genai/embedding.js';
 import { getResponseFromGemini } from './genai/response.js';
 import { PDFParse } from "pdf-parse";
+import { MalwareService } from '../malware/malware.service.js';
 import mammoth from 'mammoth';
 
 @Injectable()
 export class CompanyService {
      constructor(
+      private readonly malwareService: MalwareService,
     @InjectRepository(Company)
     private readonly companyTable: Repository<Company>,
     @InjectRepository(Document)
@@ -84,6 +86,10 @@ export class CompanyService {
       throw new BadRequestException('A document file is required.');
     }
 
+    const scanResult = await this.malwareService.scanBuffer(file.buffer);
+    if (scanResult.isInfected) {
+      throw new BadRequestException(`The uploaded file is infected with malware: ${scanResult.viruses.join(', ')}`);
+    }
     const text = await this.extractText(file);
     if (!text.trim()) {
       throw new BadRequestException('No readable text was found in the document.');
