@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { Repository } from 'typeorm';
 import { Company } from '../entities/company.entity.js';
 import { InjectRepository } from '@nestjs/typeorm';
@@ -10,6 +10,10 @@ import { getResponseFromGemini } from './genai/response.js';
 import { PDFParse } from "pdf-parse";
 import { MalwareService } from '../malware/malware.service.js';
 import mammoth from 'mammoth';
+import { inspectExtractedText } from './genai/inspectText.js';
+import { Conversation } from '../entities/conversations.entity.js';
+import { ConversationMessage } from '../entities/conversation-message.entity.js';
+import { classifyQuestion } from './genai/classification.js';
 
 @Injectable()
 export class CompanyService {
@@ -20,7 +24,11 @@ export class CompanyService {
     @InjectRepository(Document)
     private readonly documentTable: Repository<Document>,
     @InjectRepository(DocumentChunk)
-    private readonly chunkTable: Repository<DocumentChunk>
+    private readonly chunkTable: Repository<DocumentChunk>,
+    @InjectRepository(Conversation)
+    private readonly conversationTable: Repository<Conversation>,
+    @InjectRepository(ConversationMessage)
+    private readonly conversationMessageTable: Repository<ConversationMessage>,
   ) {}
 
   async createCompany(name: string){
@@ -91,22 +99,74 @@ export class CompanyService {
       throw new BadRequestException(`The uploaded file is infected with malware: ${scanResult.viruses.join(', ')}`);
     }
     const text = await this.extractText(file);
-    if (!text.trim()) {
+    if (!text.text.trim()) {
       throw new BadRequestException('No readable text was found in the document.');
+    }
+    const inspection = inspectExtractedText(text.text);
+    if (inspection.isSuspicious) {
+      throw new BadRequestException(
+        `Document contains possible prompt-injection instructions: ${inspection.promptInjectionIndicators.join(', ')}.`,
+      );
     }
     return this.enterCompanyData({
       ...metadata,
       sourceType: 'upload',
-      text,
+      text: inspection.normalizedText,
     });
   }
 
-  async userQuestion(companyId: string, query: string) {
-    const retrieved = await this.retrieveChunks(companyId, query, 3);
-    const context = this.buildContext(retrieved.map(({ chunk }) => chunk));
-    const answer = await getResponseFromGemini(context, query);
-    return { answer: answer ?? 'I could not find an answer in the company knowledge base.' };
+  async classificationHelper(query: string, conversationId?: string) {
+    if (!conversationId) {
+      return { kind: 'standalone', searchQuery: query };
+    }
+
+    const messages = await this.conversationMessageTable.find({
+      where: { conversationId },
+      select: { role: true, content: true },
+      order: { createdAt: 'DESC', id: 'DESC' },
+      take: 4,
+    });
+    if (messages.length === 0) {
+      return { kind: 'standalone', searchQuery: query };
+    }
+
+    const history = messages.reverse().map(({ role, content }) => ({ role, content }));
+    return classifyQuestion(history, query);
   }
+  async userQuestion(companyId: string, query: string, conversationId?: string) {
+    const question = typeof query === 'string' ? query.trim() : '';
+    if (!question) {
+      throw new BadRequestException('A question is required.');
+    }
+    if (conversationId && !/^\d+$/.test(conversationId)) {
+      throw new BadRequestException('Invalid conversation ID.');
+    }
+
+    const conversation = conversationId
+      ? await this.conversationTable.findOne({ where: { id: conversationId, companyId } })
+      : null;
+    if (conversationId && !conversation) {
+      throw new NotFoundException('Conversation not found for this company.');
+    }
+
+    const classifiedQuestion = await this.classificationHelper(question, conversation?.id);
+    const retrieved = await this.retrieveChunks(companyId, classifiedQuestion.searchQuery, 3);
+    const context = this.buildContext(retrieved.map(({ chunk }) => chunk));
+    const answer = (await getResponseFromGemini(context, classifiedQuestion.searchQuery))?.trim()
+      || 'I could not find an answer in the company knowledge base.';
+
+    const activeConversation = conversation ?? await this.conversationTable.save(
+      this.conversationTable.create({ companyId }),
+    );
+    await this.conversationMessageTable.save([
+      this.conversationMessageTable.create({ conversationId: activeConversation.id, role: 'user', content: question }),
+      this.conversationMessageTable.create({ conversationId: activeConversation.id, role: 'assistant', content: answer }),
+    ]);
+
+    return { answer, conversationId: activeConversation.id };
+  }
+
+
 
   async evaluateRetrieval(cases: any[]) {
   let hits = 0;
@@ -268,16 +328,16 @@ Content: ${chunk.content}
   return chunks;
 }
 
-private async extractText(file: Express.Multer.File): Promise<string> {
+private async extractText(file: Express.Multer.File): Promise<any> {
   const extension = file.originalname.split('.').pop()?.toLowerCase();
 
   if (extension === 'txt') {
-    return file.buffer.toString('utf8');
+    return { text: file.buffer.toString('utf8') };
   }
 
   if (extension === 'docx') {
     const result = await mammoth.extractRawText({ buffer: file.buffer });
-    return result.value;
+    return { text: result.value };
   }
 
   if (extension !== 'pdf') {
@@ -288,7 +348,12 @@ private async extractText(file: Express.Multer.File): Promise<string> {
 
   try {
     const result = await parser.getText();
-    return result.text;
+    const info = await parser.getInfo();
+    return {
+      text: result.text,
+      totalPages: result.total,
+      info: info.info,
+    };
   } finally {
     await parser.destroy();
   }

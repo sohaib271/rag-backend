@@ -41,7 +41,7 @@ export class CompanyController {
 
   @Post('question')
   userQuestion(@Body() dto: UserQuestionDto) {
-    return this.companyService.userQuestion(dto.companyId, dto.query);
+    return this.companyService.userQuestion(dto.companyId, dto.query,dto.conversationId);
   }
 
   @Get('evaluate-retrieval')
