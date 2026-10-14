@@ -6,10 +6,12 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { DocumentChunk } from '../entities/document-chunk.entity.js';
 import { Document } from '../entities/document.entity.js';
 import { MalwareService } from '../malware/malware.service.js';
+import { ConversationMessage } from '../entities/conversation-message.entity.js';
+import { Conversation } from '../entities/conversations.entity.js';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([Company,DocumentChunk,Document]), // Import the Company entity for TypeORM
+    TypeOrmModule.forFeature([Company,DocumentChunk,Document,Conversation,ConversationMessage]), // Import the Company entity for TypeORM
   ],
   controllers: [CompanyController],
   providers: [CompanyService, MalwareService]
