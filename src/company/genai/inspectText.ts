@@ -37,6 +37,15 @@ export function inspectExtractedText(
     .replace(/\r\n?/g, '\n')
     .trim();
 
+  // Scan additional variants so invisible characters cannot split either a
+  // keyword ("ig\u200Bnore") or the whitespace between words
+  // ("ignore\u200Bprevious").
+  const scanVariants = new Set([
+    normalizedText,
+    normalizedText.replace(invisiblePattern, ''),
+    normalizedText.replace(invisiblePattern, ' '),
+  ]);
+
   const injectionPatterns = [
     {
       name: 'Instruction override',
@@ -57,7 +66,7 @@ export function inspectExtractedText(
   ];
 
   for (const { name, pattern } of injectionPatterns) {
-    if (pattern.test(normalizedText)) {
+    if ([...scanVariants].some((scanText) => pattern.test(scanText))) {
       promptInjectionIndicators.push(name);
     }
   }
