@@ -112,3 +112,13 @@ Nest is an MIT-licensed open source project. It can grow thanks to the sponsors 
 ## License
 
 Nest is [MIT licensed](https://github.com/nestjs/nest/blob/master/LICENSE).
+# Direct answers
+
+Direct answers are isolated in `src/direct-answer` and run before embedding retrieval or response generation. Set the following environment variable to test the original RAG-only behavior without deleting data or changing code:
+
+```env
+DIRECT_ANSWERS_ENABLED=false
+```
+
+When unset or set to any other value, direct answers are enabled. The `direct_answers` table is managed by TypeORM while `synchronize` is enabled.
+

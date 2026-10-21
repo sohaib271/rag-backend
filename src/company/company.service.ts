@@ -1,4 +1,8 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { Repository } from 'typeorm';
 import { Company } from '../entities/company.entity.js';
 import { InjectRepository } from '@nestjs/typeorm';
@@ -7,18 +11,21 @@ import { DocumentChunk } from '../entities/document-chunk.entity.js';
 import { Documentdata } from './dto/document-chunk.dto.js';
 import { getEmbeddings } from './genai/embedding.js';
 import { getResponseFromGemini } from './genai/response.js';
-import { PDFParse } from "pdf-parse";
+import { PDFParse } from 'pdf-parse';
 import { MalwareService } from '../malware/malware.service.js';
 import mammoth from 'mammoth';
 import { inspectExtractedText } from './genai/inspectText.js';
 import { Conversation } from '../entities/conversations.entity.js';
 import { ConversationMessage } from '../entities/conversation-message.entity.js';
 import { classifyQuestion } from './genai/classification.js';
+import { DirectAnswerService } from './direct-answer.service.js';
+import { AnswerCacheService } from './cache/answerCache.service.js';
 
 @Injectable()
 export class CompanyService {
-     constructor(
-      private readonly malwareService: MalwareService,
+  constructor(
+    private readonly malwareService: MalwareService,
+    private readonly directAnswers: DirectAnswerService,
     @InjectRepository(Company)
     private readonly companyTable: Repository<Company>,
     @InjectRepository(Document)
@@ -29,9 +36,10 @@ export class CompanyService {
     private readonly conversationTable: Repository<Conversation>,
     @InjectRepository(ConversationMessage)
     private readonly conversationMessageTable: Repository<ConversationMessage>,
+    private readonly answerCache: AnswerCacheService,
   ) {}
 
-  async createCompany(name: string){
+  async createCompany(name: string) {
     const company = this.companyTable.create({ name: name.trim() });
     return this.companyTable.save(company);
   }
@@ -47,7 +55,10 @@ export class CompanyService {
         .getRawMany<{ companyId: string; documentCount: string }>(),
     ]);
     const counts = new Map(
-      documentCounts.map(({ companyId, documentCount }) => [companyId, Number(documentCount)]),
+      documentCounts.map(({ companyId, documentCount }) => [
+        companyId,
+        Number(documentCount),
+      ]),
     );
 
     return companies.map((company) => ({
@@ -57,11 +68,9 @@ export class CompanyService {
       documentCount: counts.get(company.id) ?? 0,
     }));
   }
-  async enterCompanyData(dto:Documentdata){
+  async enterCompanyData(dto: Documentdata) {
     const chunks = this.createChunks(dto.text);
-    const embeddings = await getEmbeddings(
-      chunks.map((content) => content),
-    );
+    const embeddings = await getEmbeddings(chunks.map((content) => content));
 
     const document = await this.documentTable.save(
       this.documentTable.create({
@@ -88,7 +97,11 @@ export class CompanyService {
 
   async enterCompanyFileData(
     file: Express.Multer.File,
-    metadata: { companyId: string; title: string; status?: Documentdata['status'] },
+    metadata: {
+      companyId: string;
+      title: string;
+      status?: Documentdata['status'];
+    },
   ) {
     if (!file) {
       throw new BadRequestException('A document file is required.');
@@ -96,11 +109,15 @@ export class CompanyService {
 
     const scanResult = await this.malwareService.scanBuffer(file.buffer);
     if (scanResult.isInfected) {
-      throw new BadRequestException(`The uploaded file is infected with malware: ${scanResult.viruses.join(', ')}`);
+      throw new BadRequestException(
+        `The uploaded file is infected with malware: ${scanResult.viruses.join(', ')}`,
+      );
     }
     const text = await this.extractText(file);
     if (!text.text.trim()) {
-      throw new BadRequestException('No readable text was found in the document.');
+      throw new BadRequestException(
+        'No readable text was found in the document.',
+      );
     }
     const inspection = inspectExtractedText(text.text);
     if (inspection.isSuspicious) {
@@ -130,10 +147,16 @@ export class CompanyService {
       return { kind: 'standalone', searchQuery: query };
     }
 
-    const history = messages.reverse().map(({ role, content }) => ({ role, content }));
+    const history = messages
+      .reverse()
+      .map(({ role, content }) => ({ role, content }));
     return classifyQuestion(history, query);
   }
-  async userQuestion(companyId: string, query: string, conversationId?: string) {
+  async userQuestion(
+    companyId: string,
+    query: string,
+    conversationId?: string,
+  ) {
     const question = typeof query === 'string' ? query.trim() : '';
     if (!question) {
       throw new BadRequestException('A question is required.');
@@ -143,221 +166,284 @@ export class CompanyService {
     }
 
     const conversation = conversationId
-      ? await this.conversationTable.findOne({ where: { id: conversationId, companyId } })
+      ? await this.conversationTable.findOne({
+          where: { id: conversationId, companyId },
+        })
       : null;
     if (conversationId && !conversation) {
       throw new NotFoundException('Conversation not found for this company.');
     }
 
-    const classifiedQuestion = await this.classificationHelper(question, conversation?.id);
-    const retrieved = await this.retrieveChunks(companyId, classifiedQuestion.searchQuery, 3);
-    const context = this.buildContext(retrieved.map(({ chunk }) => chunk));
-    const answer = (await getResponseFromGemini(context, classifiedQuestion.searchQuery))?.trim()
-      || 'I could not find an answer in the company knowledge base.';
-
-    const activeConversation = conversation ?? await this.conversationTable.save(
-      this.conversationTable.create({ companyId }),
+    const directAnswer = await this.directAnswers.findAnswer(
+      companyId,
+      question,
     );
-    await this.conversationMessageTable.save([
-      this.conversationMessageTable.create({ conversationId: activeConversation.id, role: 'user', content: question }),
-      this.conversationMessageTable.create({ conversationId: activeConversation.id, role: 'assistant', content: answer }),
-    ]);
 
-    return { answer, conversationId: activeConversation.id };
+    if (directAnswer) {
+      return this.saveAndReturn(
+        companyId,
+        conversation,
+        question,
+        directAnswer,
+        'direct',
+      );
+    }
+    if (!conversationId) {
+      const cachedAnswer = this.answerCache.get(companyId, question);
+      console.log("Cached Answer : ",cachedAnswer);
+      if (cachedAnswer) {
+        return this.saveAndReturn(
+          companyId,
+          conversation,
+          question,
+          cachedAnswer,
+          'cache',
+        );
+      }
+    }
+     const answer = await this.generateRagAnswer(
+      companyId,
+      question,
+      conversation?.id,
+    );
+
+    console.log("Gemini generated : ",answer);
+
+    if (!conversationId) {
+      this.answerCache.set(companyId, question, answer);
+    }
+
+    return this.saveAndReturn(companyId, conversation, question, answer, 'rag');
   }
 
+  private async saveConversationTurn(
+    conversationId: string,
+    question: string,
+    answer: string,
+  ) {
+    await this.conversationMessageTable.save([
+      this.conversationMessageTable.create({
+        conversationId,
+        role: 'user',
+        content: question,
+      }),
+      this.conversationMessageTable.create({
+        conversationId,
+        role: 'assistant',
+        content: answer,
+      }),
+    ]);
+  }
 
-
-  async evaluateRetrieval(cases: any[]) {
-  let hits = 0;
-  let reciprocalRankTotal = 0;
-  let factCoverageTotal = 0;
-  let precisionTotal = 0;
-  let answerableCases = 0;
-
-  for (const testCase of cases) {
-    const results = await this.retrieveChunks(
-      testCase.companyId,
-      testCase.question,
+  async generateRagAnswer(
+    companyId: string,
+    question: string,
+    conversationId: any,
+  ) {
+    const classifiedQuestion = await this.classificationHelper(
+      question,
+      conversationId,
+    );
+    const retrieved = await this.retrieveChunks(
+      companyId,
+      classifiedQuestion.searchQuery,
       3,
     );
-
-    // Unanswerable questions have no expected facts.
-    // They need separate threshold-based evaluation.
-    if (!testCase.shouldAnswer) {
-      continue;
-    }
-
-    answerableCases++;
-
-    const combinedContext = results
-      .map(({ chunk }) => chunk.content)
-      .join(' ')
-      .toLowerCase();
-
-    const factsFound = testCase.expectedFacts.filter(
-      (fact: string) =>
-        combinedContext.includes(fact.toLowerCase()),
-    ).length;
-
-    const caseFactCoverage =
-      testCase.expectedFacts.length > 0
-        ? factsFound / testCase.expectedFacts.length
-        : 0;
-
-    factCoverageTotal += caseFactCoverage;
-
-    const relevantResults = results.filter(({ chunk }) =>
-      testCase.expectedFacts.some((fact: string) =>
-        chunk.content
-          .toLowerCase()
-          .includes(fact.toLowerCase()),
-      ),
+    const context = this.buildContext(retrieved.map(({ chunk }) => chunk));
+    return (
+      (
+        await getResponseFromGemini(context, classifiedQuestion.searchQuery)
+      )?.trim() || 'I could not find an answer in the company knowledge base.'
     );
-
-    const casePrecision =
-      results.length > 0
-        ? relevantResults.length / results.length
-        : 0;
-
-    precisionTotal += casePrecision;
-
-    const correctIndex = results.findIndex(({ chunk }) => {
-      const correctDocument =
-        chunk.document.title === testCase.sourceDocument;
-
-      const containsExpectedFact =
-        testCase.expectedFacts.some((fact: string) =>
-          chunk.content
-            .toLowerCase()
-            .includes(fact.toLowerCase()),
-        );
-
-      return correctDocument && containsExpectedFact;
-    });
-
-    if (correctIndex >= 0) {
-      hits++;
-      reciprocalRankTotal += 1 / (correctIndex + 1);
-    }
   }
 
+  private async saveAndReturn(
+    companyId: string,
+    conversation: Conversation | null,
+    question: string,
+    answer: string,
+    source: 'direct' | 'cache' | 'rag',
+  ) {
+    const activeConversation =
+      conversation ??
+      (await this.conversationTable.save(
+        this.conversationTable.create({ companyId }),
+      ));
 
-  return {
-    totalQuestions: cases.length,
-    answerableQuestions: answerableCases,
+    await this.saveConversationTurn(activeConversation.id, question, answer);
 
-    hitAt3:
-      answerableCases > 0
-        ? hits / answerableCases
-        : 0,
+    return {
+      answer,
+      conversationId: activeConversation.id,
+      source,
+    };
+  }
 
-    meanReciprocalRank:
-      answerableCases > 0
-        ? reciprocalRankTotal / answerableCases
-        : 0,
+  async evaluateRetrieval(cases: any[]) {
+    let hits = 0;
+    let reciprocalRankTotal = 0;
+    let factCoverageTotal = 0;
+    let precisionTotal = 0;
+    let answerableCases = 0;
 
-    factCoverage:
-      answerableCases > 0
-        ? factCoverageTotal / answerableCases
-        : 0,
+    for (const testCase of cases) {
+      const results = await this.retrieveChunks(
+        testCase.companyId,
+        testCase.question,
+        3,
+      );
 
-    precisionAt3:
-      answerableCases > 0
-        ? precisionTotal / answerableCases
-        : 0,
-  };
-}
-private async retrieveChunks(
-  companyId: string,
-  query: string,
-  limit = 3,
-): Promise<any[]> {
-  const [questionEmbedding] = await getEmbeddings([query.trim() ]);
-  const vector = JSON.stringify(questionEmbedding.values);
+      // Unanswerable questions have no expected facts.
+      // They need separate threshold-based evaluation.
+      if (!testCase.shouldAnswer) {
+        continue;
+      }
 
-  const result = await this.chunkTable
-    .createQueryBuilder('chunk')
-    .innerJoinAndSelect('chunk.document', 'document')
-    .addSelect(
-      'chunk.embedding <=> CAST(:vector AS vector)',
-      'distance',
-    )
-    .where('chunk.companyId = :companyId', { companyId })
-    .setParameter('vector', vector)
-    .orderBy('distance', 'ASC')
-    .limit(limit)
-    .getRawAndEntities();
+      answerableCases++;
 
-  return result.entities.map((chunk, index) => ({
-    chunk,
-    distance: Number(result.raw[index].distance),
-  }));
-}
+      const combinedContext = results
+        .map(({ chunk }) => chunk.content)
+        .join(' ')
+        .toLowerCase();
+
+      const factsFound = testCase.expectedFacts.filter((fact: string) =>
+        combinedContext.includes(fact.toLowerCase()),
+      ).length;
+
+      const caseFactCoverage =
+        testCase.expectedFacts.length > 0
+          ? factsFound / testCase.expectedFacts.length
+          : 0;
+
+      factCoverageTotal += caseFactCoverage;
+
+      const relevantResults = results.filter(({ chunk }) =>
+        testCase.expectedFacts.some((fact: string) =>
+          chunk.content.toLowerCase().includes(fact.toLowerCase()),
+        ),
+      );
+
+      const casePrecision =
+        results.length > 0 ? relevantResults.length / results.length : 0;
+
+      precisionTotal += casePrecision;
+
+      const correctIndex = results.findIndex(({ chunk }) => {
+        const correctDocument =
+          chunk.document.title === testCase.sourceDocument;
+
+        const containsExpectedFact = testCase.expectedFacts.some(
+          (fact: string) =>
+            chunk.content.toLowerCase().includes(fact.toLowerCase()),
+        );
+
+        return correctDocument && containsExpectedFact;
+      });
+
+      if (correctIndex >= 0) {
+        hits++;
+        reciprocalRankTotal += 1 / (correctIndex + 1);
+      }
+    }
+
+    return {
+      totalQuestions: cases.length,
+      answerableQuestions: answerableCases,
+
+      hitAt3: answerableCases > 0 ? hits / answerableCases : 0,
+
+      meanReciprocalRank:
+        answerableCases > 0 ? reciprocalRankTotal / answerableCases : 0,
+
+      factCoverage:
+        answerableCases > 0 ? factCoverageTotal / answerableCases : 0,
+
+      precisionAt3: answerableCases > 0 ? precisionTotal / answerableCases : 0,
+    };
+  }
+  private async retrieveChunks(
+    companyId: string,
+    query: string,
+    limit = 3,
+  ): Promise<any[]> {
+    const [questionEmbedding] = await getEmbeddings([query.trim()]);
+    const vector = JSON.stringify(questionEmbedding.values);
+
+    const result = await this.chunkTable
+      .createQueryBuilder('chunk')
+      .innerJoinAndSelect('chunk.document', 'document')
+      .addSelect('chunk.embedding <=> CAST(:vector AS vector)', 'distance')
+      .where('chunk.companyId = :companyId', { companyId })
+      .setParameter('vector', vector)
+      .orderBy('distance', 'ASC')
+      .limit(limit)
+      .getRawAndEntities();
+
+    return result.entities.map((chunk, index) => ({
+      chunk,
+      distance: Number(result.raw[index].distance),
+    }));
+  }
 
   private buildContext(chunks: any[]): string {
-  return chunks
-    .map(
-      (chunk, index) => `
+    return chunks
+      .map((chunk, index) =>
+        `
 [Source ${index + 1}]
 Document: ${chunk.document.title}
 Chunk: ${chunk.chunkIndex}
 Content: ${chunk.content}
       `.trim(),
-    )
-    .join('\n\n')
+      )
+      .join('\n\n');
   }
 
-  private createChunks(
-  text: string,
-  chunkSize = 300,
-  overlap = 50,
-): string[] {
-  const words = text.trim().split(/\s+/);
-  const chunks: string[] = [];
-  const step = chunkSize - overlap;
+  private createChunks(text: string, chunkSize = 300, overlap = 50): string[] {
+    const words = text.trim().split(/\s+/);
+    const chunks: string[] = [];
+    const step = chunkSize - overlap;
 
-  for (let index = 0; index < words.length; index += step) {
-    const chunk = words.slice(index, index + chunkSize).join(' ');
+    for (let index = 0; index < words.length; index += step) {
+      const chunk = words.slice(index, index + chunkSize).join(' ');
 
-    if (chunk) {
-      chunks.push(chunk);
+      if (chunk) {
+        chunks.push(chunk);
+      }
+    }
+
+    return chunks;
+  }
+
+  private async extractText(file: Express.Multer.File): Promise<any> {
+    const extension = file.originalname.split('.').pop()?.toLowerCase();
+
+    if (extension === 'txt') {
+      return { text: file.buffer.toString('utf8') };
+    }
+
+    if (extension === 'docx') {
+      const result = await mammoth.extractRawText({ buffer: file.buffer });
+      return { text: result.value };
+    }
+
+    if (extension !== 'pdf') {
+      throw new BadRequestException(
+        'Only PDF, DOCX, and TXT files are supported.',
+      );
+    }
+
+    const parser = new PDFParse({ data: file.buffer });
+
+    try {
+      const result = await parser.getText();
+      const info = await parser.getInfo();
+      return {
+        text: result.text,
+        totalPages: result.total,
+        info: info.info,
+      };
+    } finally {
+      await parser.destroy();
     }
   }
-
-  return chunks;
-}
-
-private async extractText(file: Express.Multer.File): Promise<any> {
-  const extension = file.originalname.split('.').pop()?.toLowerCase();
-
-  if (extension === 'txt') {
-    return { text: file.buffer.toString('utf8') };
-  }
-
-  if (extension === 'docx') {
-    const result = await mammoth.extractRawText({ buffer: file.buffer });
-    return { text: result.value };
-  }
-
-  if (extension !== 'pdf') {
-    throw new BadRequestException('Only PDF, DOCX, and TXT files are supported.');
-  }
-
-  const parser = new PDFParse({ data: file.buffer });
-
-  try {
-    const result = await parser.getText();
-    const info = await parser.getInfo();
-    return {
-      text: result.text,
-      totalPages: result.total,
-      info: info.info,
-    };
-  } finally {
-    await parser.destroy();
-  }
-}
-
-
 }

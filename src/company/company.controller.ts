@@ -1,10 +1,12 @@
-import { Body, Controller, Get, Post, UploadedFile, UseInterceptors } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Patch, Post, Query, UploadedFile, UseInterceptors } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { readFile } from 'node:fs/promises';
 import { CompanyDto } from './dto/company.dto.js';
 import { CompanyService } from './company.service.js';
 import type { Documentdata } from './dto/document-chunk.dto.js';
 import { UserQuestionDto } from './dto/user-question.dto.js';
+import { DirectAnswerService } from './direct-answer.service.js';
+import type { DirectAnswerInput, DirectAnswerUpdate } from './direct-answer.service.js';
 
 const content = await readFile(
   './test-data/ghani-branding-retrieval-evaluation.json',
@@ -14,7 +16,10 @@ const cases = JSON.parse(content) as any;
 
 @Controller('company')
 export class CompanyController {
-  constructor(private readonly companyService: CompanyService) {}
+  constructor(
+    private readonly companyService: CompanyService,
+    private readonly directAnswers: DirectAnswerService,
+  ) {}
 
   @Get()
   listCompanies() {
@@ -41,7 +46,32 @@ export class CompanyController {
 
   @Post('question')
   userQuestion(@Body() dto: UserQuestionDto) {
-    return this.companyService.userQuestion(dto.companyId, dto.query,dto.conversationId);
+    return this.companyService.userQuestion(dto.companyId, dto.query, dto.conversationId);
+  }
+
+  @Get('direct-answers')
+  listDirectAnswers(@Query('companyId') companyId: string) {
+    return this.directAnswers.list(companyId);
+  }
+
+  @Get('direct-answers/suggestions')
+  directAnswerSuggestions(@Query('companyId') companyId: string) {
+    return this.directAnswers.suggestions(companyId);
+  }
+
+  @Post('direct-answers')
+  createDirectAnswer(@Body() input: DirectAnswerInput) {
+    return this.directAnswers.create(input);
+  }
+
+  @Patch('direct-answers/:id')
+  updateDirectAnswer(@Param('id') id: string, @Body() input: DirectAnswerUpdate) {
+    return this.directAnswers.update(id, input);
+  }
+
+  @Delete('direct-answers/:id')
+  deleteDirectAnswer(@Param('id') id: string) {
+    return this.directAnswers.remove(id);
   }
 
   @Get('evaluate-retrieval')
