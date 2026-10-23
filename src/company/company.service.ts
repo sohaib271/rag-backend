@@ -9,7 +9,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Document } from '../entities/document.entity.js';
 import { DocumentChunk } from '../entities/document-chunk.entity.js';
 import { Documentdata } from './dto/document-chunk.dto.js';
-import { getEmbeddings } from './genai/embedding.js';
+import { getEmbeddings, getQueryEmbedding } from './genai/embedding.js';
 import { getResponseFromGemini } from './genai/response.js';
 import { PDFParse } from 'pdf-parse';
 import { MalwareService } from '../malware/malware.service.js';
@@ -19,7 +19,8 @@ import { Conversation } from '../entities/conversations.entity.js';
 import { ConversationMessage } from '../entities/conversation-message.entity.js';
 import { classifyQuestion } from './genai/classification.js';
 import { DirectAnswerService } from './direct-answer.service.js';
-import { AnswerCacheService } from './cache/answerCache.service.js';
+import { AnswerCacheService } from './redis/exact-cache/answerCache.service.js';
+import { SemanticCacheService } from './redis/semantic-cache/semanticCache.service.js';
 
 @Injectable()
 export class CompanyService {
@@ -37,6 +38,7 @@ export class CompanyService {
     @InjectRepository(ConversationMessage)
     private readonly conversationMessageTable: Repository<ConversationMessage>,
     private readonly answerCache: AnswerCacheService,
+    private readonly semanticCache: SemanticCacheService,
   ) {}
 
   async createCompany(name: string) {
@@ -91,6 +93,11 @@ export class CompanyService {
     );
 
     await this.chunkTable.save(documentChunks);
+
+    await Promise.all([
+      this.answerCache.clearCompany(dto.companyId),
+      this.semanticCache.clearCompany(dto.companyId),
+    ]);
 
     return { document, chunksCreated: documentChunks.length };
   }
@@ -188,30 +195,58 @@ export class CompanyService {
         'direct',
       );
     }
-    if (!conversationId) {
-      const cachedAnswer = this.answerCache.get(companyId, question);
-      console.log("Cached Answer : ",cachedAnswer);
-      if (cachedAnswer) {
-        return this.saveAndReturn(
-          companyId,
-          conversation,
-          question,
-          cachedAnswer,
-          'cache',
-        );
-      }
-    }
-     const answer = await this.generateRagAnswer(
-      companyId,
+
+    const classifiedQuestion = await this.classificationHelper(
       question,
       conversation?.id,
     );
 
-    console.log("Gemini generated : ",answer);
-
-    if (!conversationId) {
-      this.answerCache.set(companyId, question, answer);
+    const cacheQuestion = classifiedQuestion.searchQuery;
+    console.log("Classified : ",cacheQuestion)
+    const cachedAnswer = await this.answerCache.get(companyId, cacheQuestion);
+    if (cachedAnswer) {
+      return this.saveAndReturn(
+        companyId,
+        conversation,
+        question,
+        cachedAnswer,
+        'cache',
+      );
     }
+
+    const queryEmbedding = await getQueryEmbedding(cacheQuestion);
+    const semanticMatch = await this.semanticCache.findSimilar(
+      companyId,
+      queryEmbedding,
+    );
+    console.log("Semantic Match : ",semanticMatch)
+    if (semanticMatch) {
+      await this.answerCache.set(companyId, cacheQuestion, semanticMatch.answer);
+      return this.saveAndReturn(
+        companyId,
+        conversation,
+        question,
+        semanticMatch.answer,
+        'semantic-cache',
+      );
+    }
+
+    const { answer, chunkIds } = await this.generateRagAnswer(
+      companyId,
+      cacheQuestion,
+      queryEmbedding,
+    );
+
+    await Promise.all([
+      this.answerCache.set(companyId, cacheQuestion, answer),
+      this.semanticCache.set({
+        companyId,
+        question: cacheQuestion,
+        answer,
+        embedding: queryEmbedding,
+        chunkIds,
+      }),
+    ]);
 
     return this.saveAndReturn(companyId, conversation, question, answer, 'rag');
   }
@@ -238,23 +273,19 @@ export class CompanyService {
   async generateRagAnswer(
     companyId: string,
     question: string,
-    conversationId: any,
+    embedding: number[],
   ) {
-    const classifiedQuestion = await this.classificationHelper(
-      question,
-      conversationId,
-    );
-    const retrieved = await this.retrieveChunks(
-      companyId,
-      classifiedQuestion.searchQuery,
-      3,
-    );
+    const retrieved = await this.retrieveChunksByEmbedding(companyId, embedding, 3);
     const context = this.buildContext(retrieved.map(({ chunk }) => chunk));
-    return (
+    const answer = (
       (
-        await getResponseFromGemini(context, classifiedQuestion.searchQuery)
+        await getResponseFromGemini(context, question)
       )?.trim() || 'I could not find an answer in the company knowledge base.'
     );
+    return {
+      answer,
+      chunkIds: retrieved.map(({ chunk }) => chunk.id as string),
+    };
   }
 
   private async saveAndReturn(
@@ -262,7 +293,7 @@ export class CompanyService {
     conversation: Conversation | null,
     question: string,
     answer: string,
-    source: 'direct' | 'cache' | 'rag',
+    source: 'direct' | 'cache' | 'semantic-cache' | 'rag',
   ) {
     const activeConversation =
       conversation ??
@@ -366,8 +397,16 @@ export class CompanyService {
     query: string,
     limit = 3,
   ): Promise<any[]> {
-    const [questionEmbedding] = await getEmbeddings([query.trim()]);
-    const vector = JSON.stringify(questionEmbedding.values);
+    const embedding = await getQueryEmbedding(query.trim());
+    return this.retrieveChunksByEmbedding(companyId, embedding, limit);
+  }
+
+  private async retrieveChunksByEmbedding(
+    companyId: string,
+    embedding: number[],
+    limit = 3,
+  ): Promise<any[]> {
+    const vector = JSON.stringify(embedding);
 
     const result = await this.chunkTable
       .createQueryBuilder('chunk')
