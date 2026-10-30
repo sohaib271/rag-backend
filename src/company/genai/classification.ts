@@ -3,7 +3,7 @@ import { GoogleGenAI, Type } from '@google/genai';
 type Turn = { role: 'user' | 'assistant'; content: string };
 
 const ai = new GoogleGenAI({
-  apiKey: "AQ.Ab8RN6Ih2hl-wXTBzLRulHU69bRr7Pr5IqtkSu0ehmvRrswcLg",
+  apiKey: 'AQ.Ab8RN6Ih2hl-wXTBzLRulHU69bRr7Pr5IqtkSu0ehmvRrswcLg',
 });
 
 export async function classifyQuestion(history: Turn[], question: string) {

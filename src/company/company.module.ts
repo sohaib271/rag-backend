@@ -13,10 +13,16 @@ import { DirectAnswerService } from './direct-answer.service.js';
 import { AnswerCacheService } from './redis/exact-cache/answerCache.service.js';
 import { RedisService } from './redis/redis.service.js';
 import { SemanticCacheService } from './redis/semantic-cache/semanticCache.service.js';
+import { AuthModule } from '../auth/auth.module.js';
+import { ServiceInfo } from '../entities/service-info.entity.js';
+import { ServiceInfoService } from './service-info.service.js';
+import { Booking } from '../entities/booking.entity.js';
+import { BookingService } from './booking.service.js';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([Company, DocumentChunk, Document, Conversation, ConversationMessage, DirectAnswer]),
+    AuthModule,
+    TypeOrmModule.forFeature([Company, DocumentChunk, Document, Conversation, ConversationMessage, DirectAnswer, ServiceInfo, Booking]),
   ],
   controllers: [CompanyController],
   providers: [
@@ -26,6 +32,8 @@ import { SemanticCacheService } from './redis/semantic-cache/semanticCache.servi
     RedisService,
     AnswerCacheService,
     SemanticCacheService,
+    ServiceInfoService,
+    BookingService,
   ],
 })
 export class CompanyModule {}
