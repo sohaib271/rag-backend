@@ -1,4 +1,5 @@
-import { GoogleGenAI, Type } from '@google/genai';
+import { Type } from '@google/genai';
+import { getGeminiClient } from './gemini-client.js';
 
 export const customerIntents = [
   'ask_information',
@@ -71,14 +72,8 @@ export async function detectCustomerIntent(
   const workflowResult = detectWorkflowReply(normalizedMessage, bookingFlowState);
   if (workflowResult) return workflowResult;
 
-  const apiKey = 'AQ.Ab8RN6Ih2hl-wXTBzLRulHU69bRr7Pr5IqtkSu0ehmvRrswcLg';
-  if (!apiKey) {
-    throw new Error('GEMINI_API_KEY is required for intent detection.');
-  }
-
   const recentHistory = (context.history ?? []).slice(-6);
-  const ai = new GoogleGenAI({ apiKey });
-  const response = await ai.models.generateContent({
+  const response = await getGeminiClient().models.generateContent({
     model: 'gemini-3.5-flash-lite',
     contents: buildClassificationPrompt(
       normalizedMessage,

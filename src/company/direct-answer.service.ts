@@ -36,6 +36,12 @@ export class DirectAnswerService {
     });
   }
 
+  async companyIdForAnswer(id: string) {
+    const answer = await this.answers.findOne({ where: { id }, select: { companyId: true } });
+    if (!answer) throw new NotFoundException('Direct answer not found.');
+    return answer.companyId;
+  }
+
   async create(input: DirectAnswerInput) {
     this.requireQuestionAndAnswer(input.question, input.answer);
     if (!await this.companies.existsBy({ id: input.companyId })) {
@@ -70,12 +76,9 @@ export class DirectAnswerService {
   }
 
   async findAnswer(companyId: string, question: string) {
-    console.log("Question : ",question);
     if (process.env.DIRECT_ANSWERS_ENABLED === 'false') return null;
     const expected = normalize(question);
-    console.log("Normalize Question : ",expected);
     const answers = await this.answers.findBy({ companyId, enabled: true });
-    console.log("Direct Answer : ",answers);
     return answers.find(({ question, phrases }) =>
       [question, ...phrases].some((phrase) => normalize(phrase) === expected),
     )?.answer ?? null;

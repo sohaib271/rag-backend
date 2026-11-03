@@ -1,124 +1,130 @@
-<p align="center">
-  <a href="http://nestjs.com/" target="blank"><img src="https://nestjs.com/img/logo-small.svg" width="120" alt="Nest Logo" /></a>
-</p>
+# SalonSync AI - Intelligent RAG-Powered Booking and Customer Experience Platform
 
-[circleci-image]: https://img.shields.io/circleci/build/github/nestjs/nest/master?token=abc123def456
-[circleci-url]: https://circleci.com/gh/nestjs/nest
+SalonSync AI is a multi-tenant customer-support and appointment platform built with NestJS. It combines retrieval-augmented generation (RAG), Gemini-powered intent detection, company-specific knowledge, automated booking workflows, persistent conversations, and queued email notifications.
 
-  <p align="center">A progressive <a href="http://nodejs.org" target="_blank">Node.js</a> framework for building efficient and scalable server-side applications.</p>
-    <p align="center">
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/v/@nestjs/core.svg" alt="NPM Version" /></a>
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/l/@nestjs/core.svg" alt="Package License" /></a>
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/dm/@nestjs/common.svg" alt="NPM Downloads" /></a>
-<a href="https://circleci.com/gh/nestjs/nest" target="_blank"><img src="https://img.shields.io/circleci/build/github/nestjs/nest/master" alt="CircleCI" /></a>
-<a href="https://discord.gg/G7Qnnhy" target="_blank"><img src="https://img.shields.io/badge/discord-online-brightgreen.svg" alt="Discord"/></a>
-<a href="https://opencollective.com/nest#backer" target="_blank"><img src="https://opencollective.com/nest/backers/badge.svg" alt="Backers on Open Collective" /></a>
-<a href="https://opencollective.com/nest#sponsor" target="_blank"><img src="https://opencollective.com/nest/sponsors/badge.svg" alt="Sponsors on Open Collective" /></a>
-  <a href="https://paypal.me/kamilmysliwiec" target="_blank"><img src="https://img.shields.io/badge/Donate-PayPal-ff3f59.svg" alt="Donate us"/></a>
-    <a href="https://opencollective.com/nest#sponsor"  target="_blank"><img src="https://img.shields.io/badge/Support%20us-Open%20Collective-41B883.svg" alt="Support us"></a>
-  <a href="https://twitter.com/nestframework" target="_blank"><img src="https://img.shields.io/twitter/follow/nestframework.svg?style=social&label=Follow" alt="Follow us on Twitter"></a>
-</p>
-  <!--[![Backers on Open Collective](https://opencollective.com/nest/backers/badge.svg)](https://opencollective.com/nest#backer)
-  [![Sponsors on Open Collective](https://opencollective.com/nest/sponsors/badge.svg)](https://opencollective.com/nest#sponsor)-->
+The companion React frontend is available at [rag-frontend](https://github.com/sohaib271/rag-frontend).
 
-## Description
+## Main features
 
-[Nest](https://github.com/nestjs/nest) framework TypeScript starter repository.
+- Business-admin signup and company ownership
+- PDF, DOCX, TXT, and manually entered company knowledge
+- RAG answers using Gemini embeddings and PostgreSQL `pgvector`
+- Persistent customer conversations and message history
+- Service catalogue with company-specific currencies
+- Appointment collection, availability checking, confirmation, cancellation, and rescheduling
+- BullMQ and Redis email queue with retry support
+- Separate confirmation emails for the customer and company owner
 
-## Project setup
+## Prerequisites
 
-```bash
-$ npm install
+PostgreSQL with pgvector, Redis, and ClamAV run as Docker containers in this setup.
+
+## Start infrastructure with Docker
+
+Create and start the pgvector/PostgreSQL container:
+
+```powershell
+docker run -d --name salonsync-postgres `
+  -e POSTGRES_USER=postgres `
+  -e POSTGRES_PASSWORD=change-me `
+  -e POSTGRES_DB=rag_db `
+  -p 5433:5432 `
+  -v salonsync_pgdata:/var/lib/postgresql/data `
+  pgvector/pgvector:pg16
 ```
 
-## Compile and run the project
+Enable the vector extension:
 
-```bash
-# development
-$ npm run start
-
-# watch mode
-$ npm run start:dev
-
-# production mode
-$ npm run start:prod
+```powershell
+docker exec salonsync-postgres psql -U postgres -d rag_db -c "CREATE EXTENSION IF NOT EXISTS vector;"
 ```
 
-## Run tests
+Start Redis for caching and BullMQ email jobs:
 
-```bash
-# unit tests
-$ npm run test
-
-# e2e tests
-$ npm run test:e2e
-
-# test coverage
-$ npm run test:cov
+```powershell
+docker run -d --name salonsync-redis -p 6379:6379 redis:8-alpine
 ```
 
-## Deployment
+Start ClamAV for uploaded-document malware scanning:
 
-When you're ready to deploy your NestJS application to production, there are some key steps you can take to ensure it runs as efficiently as possible. Check out the [deployment documentation](https://docs.nestjs.com/deployment) for more information.
-
-If you are looking for a cloud-based platform to deploy your NestJS application, check out [Mau](https://mau.nestjs.com), our official platform for deploying NestJS applications on AWS. Mau makes deployment straightforward and fast, requiring just a few simple steps:
-
-```bash
-$ npm install -g @nestjs/mau
-$ mau deploy
+```powershell
+docker run -d --name salonsync-clamav -p 3310:3310 clamav/clamav:stable
 ```
 
-With Mau, you can deploy your application in just a few clicks, allowing you to focus on building features rather than managing infrastructure.
+ClamAV can take a little while to download signatures and become ready. Check container status with:
 
-## Observability
-
-In production applications, observability is essential for understanding how your system behaves, detecting issues early, and maintaining reliable performance.
-
-[NestJS Observe](https://observe.nestjs.com) automatically instruments your NestJS application, giving you deep visibility into your system with minimal setup:
-
-- **Distributed tracing:** Follow requests across services and understand how they flow through your system.
-- **Waterfall analysis:** Visualize request execution and identify slow operations, bottlenecks, and unexpected delays.
-- **Performance analysis:** Analyze application performance in real time and quickly pinpoint areas that need optimization.
-- **Metrics:** Track key application and infrastructure metrics to understand system health and performance trends.
-- **Logging:** Centralize and correlate logs with traces and other telemetry to make debugging easier.
-- **Error tracking:** Detect errors quickly and investigate their root causes with the surrounding context.
-- **SLA monitoring:** Track service-level objectives and identify when your application is approaching or exceeding defined thresholds.
-- **Alarms and alerts:** Set up alerts for critical errors, performance degradation, SLA violations, and other anomalies so your team can react quickly.
-
-## Resources
-
-Check out a few resources that may come in handy when working with NestJS:
-
-- Visit the [NestJS Documentation](https://docs.nestjs.com) to learn more about the framework.
-- For questions and support, please visit our [Discord channel](https://discord.gg/G7Qnnhy).
-- To dive deeper and get more hands-on experience, check out our official video [courses](https://courses.nestjs.com/).
-- Deploy your application to AWS with the help of [NestJS Mau](https://mau.nestjs.com) in just a few clicks.
-- Auto-instrument your application with [NestJS Observer](https://observer.nestjs.com). Distributed tracing, metrics, and logging made easy. Error tracking and performance monitoring for your NestJS applications.
-- Visualize your application graph and interact with the NestJS application in real-time using [NestJS Devtools](https://devtools.nestjs.com).
-- Need help with your project (part-time to full-time)? Check out our official [enterprise support](https://enterprise.nestjs.com).
-- To stay in the loop and get updates, follow us on [X](https://x.com/nestframework) and [LinkedIn](https://linkedin.com/company/nestjs).
-- Looking for a job, or have a job to offer? Check out our official [Jobs board](https://jobs.nestjs.com).
-
-## Support
-
-Nest is an MIT-licensed open source project. It can grow thanks to the sponsors and support by the amazing backers. If you'd like to join them, please [read more here](https://docs.nestjs.com/support).
-
-## Stay in touch
-
-- Author - [Kamil Myśliwiec](https://twitter.com/kammysliwiec)
-- Website - [https://nestjs.com](https://nestjs.com/)
-- Twitter - [@nestframework](https://twitter.com/nestframework)
-
-## License
-
-Nest is [MIT licensed](https://github.com/nestjs/nest/blob/master/LICENSE).
-# Direct answers
-
-Direct answers are isolated in `src/direct-answer` and run before embedding retrieval or response generation. Set the following environment variable to test the original RAG-only behavior without deleting data or changing code:
-
-```env
-DIRECT_ANSWERS_ENABLED=false
+```powershell
+docker ps
+docker logs salonsync-clamav
 ```
 
-When unset or set to any other value, direct answers are enabled. The `direct_answers` table is managed by TypeORM while `synchronize` is enabled.
+After the containers have been created once, restart them with:
 
+```powershell
+docker start salonsync-postgres salonsync-redis salonsync-clamav
+```
+
+## Environment configuration
+
+Download the prepared `.env` file using the link included in the project owner's CV and place it directly inside the `rag-backend` directory. No manual environment configuration is required.
+
+## Gmail confirmation emails
+
+Use original, accessible Gmail addresses when registering a business admin or creating a customer. The customer receives appointment confirmations, while the Gmail address of the company owner receives new-booking notifications. The provided `.env` file already contains the sender configuration.
+
+## First-time setup in the application
+
+After signing up as a business admin:
+
+1. Create your company and select its currency and one-time customer capacity.
+2. Add or upload a company document in PDF, DOCX, or TXT format. You can also enter the knowledge manually. This content becomes the company's RAG knowledge base and is used to answer customer questions about matters such as opening hours, policies, location, contact details, and general business information.
+3. Add the company's services separately from the **Services** section. Include each service's name, price, and average duration. Service records are required for appointment booking, service matching, availability calculations, booking summaries, and confirmation emails.
+4. Create a customer account with a real email address, then sign in as that customer to test chat and appointment booking.
+
+Company documents and service records serve different purposes. Mentioning a service only inside an uploaded document does not add it to the booking catalogue; it must also be created in the **Services** section before customers can book it.
+
+Development currently uses TypeORM schema synchronization, so application tables and new columns are created when the backend starts. The Docker command above creates `rag_db`; the separate `docker exec` command enables its `vector` extension.
+
+## Run the backend
+
+From the `rag-backend` directory:
+
+```powershell
+npm install
+npm run start:dev
+```
+
+The API starts at `http://localhost:3000` by default.
+
+Before starting it, ensure:
+
+- The `salonsync-postgres`, `salonsync-redis`, and `salonsync-clamav` containers are running.
+- `.env` contains valid Gemini and Gmail credentials.
+
+## Run the frontend
+
+Clone the [frontend repository](https://github.com/sohaib271/rag-frontend), then run:
+
+```powershell
+git clone https://github.com/sohaib271/rag-frontend.git
+cd rag-frontend
+npm install
+npm run dev
+```
+
+The frontend starts at `http://localhost:5173` and proxies `/api` requests to `http://localhost:3000`.
+
+## Build and test
+
+```powershell
+npx nest build
+npm test
+```
+
+Build the frontend separately with:
+
+```powershell
+npm run build
+```
+
+Run that command from the frontend directory.

@@ -1,10 +1,12 @@
 import {
   BadRequestException,
+  ForbiddenException,
   Injectable,
   Logger,
   NotFoundException,
+  OnModuleInit,
 } from '@nestjs/common';
-import { Repository } from 'typeorm';
+import { IsNull, Repository } from 'typeorm';
 import { Company } from '../entities/company.entity.js';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Document } from '../entities/document.entity.js';
@@ -29,9 +31,11 @@ import {
   detectCustomerIntent,
 } from './genai/intent-detection.js';
 import { BookingService } from './booking.service.js';
+import { User, UserRole } from '../entities/user.entity.js';
+import type { AuthUser } from '../auth/auth.types.js';
 
 @Injectable()
-export class CompanyService {
+export class CompanyService implements OnModuleInit {
   private readonly logger = new Logger(CompanyService.name);
 
   constructor(
@@ -47,14 +51,27 @@ export class CompanyService {
     private readonly conversationTable: Repository<Conversation>,
     @InjectRepository(ConversationMessage)
     private readonly conversationMessageTable: Repository<ConversationMessage>,
+    @InjectRepository(User)
+    private readonly userTable: Repository<User>,
     private readonly answerCache: AnswerCacheService,
     private readonly semanticCache: SemanticCacheService,
     private readonly bookingService: BookingService,
   ) {}
 
-  async createCompany(name: string, oneTimeCapacity = 1) {
+  async onModuleInit() {
+    const legacyOwner = await this.userTable.findOne({
+      where: { role: UserRole.ADMIN },
+      order: { createdAt: 'ASC' },
+    });
+    if (legacyOwner) {
+      await this.companyTable.update({ ownerId: IsNull() }, { ownerId: legacyOwner.id });
+    }
+  }
+
+  async createCompany(name: string, ownerId: string, oneTimeCapacity = 1, currency = 'USD') {
     const cleanName = name?.trim();
     const capacity = Number(oneTimeCapacity);
+    const normalizedCurrency = validateCurrency(currency);
     if (!cleanName) throw new BadRequestException('Company name is required.');
     if (!Number.isInteger(capacity) || capacity < 1)
       throw new BadRequestException(
@@ -63,15 +80,18 @@ export class CompanyService {
     const company = this.companyTable.create({
       name: cleanName,
       oneTimeCapacity: capacity,
+      currency: normalizedCurrency,
+      ownerId,
     });
     return this.companyTable.save(company);
   }
 
   async updateCompany(
     id: string,
-    input: { name?: string; oneTimeCapacity?: number },
+    input: { name?: string; oneTimeCapacity?: number; currency?: string },
+    ownerId: string,
   ) {
-    const company = await this.companyTable.findOneBy({ id });
+    const company = await this.companyTable.findOneBy({ id, ownerId });
     if (!company) throw new NotFoundException('Company not found.');
     if (input.name !== undefined) {
       const name = input.name.trim();
@@ -86,18 +106,22 @@ export class CompanyService {
         );
       company.oneTimeCapacity = capacity;
     }
+    if (input.currency !== undefined) company.currency = validateCurrency(input.currency);
     return this.companyTable.save(company);
   }
 
-  async deleteCompany(id: string) {
-    const result = await this.companyTable.delete(id);
+  async deleteCompany(id: string, ownerId: string) {
+    const result = await this.companyTable.delete({ id, ownerId });
     if (!result.affected) throw new NotFoundException('Company not found.');
     return { deleted: true };
   }
 
-  async listCompanies() {
+  async listCompanies(user: AuthUser) {
     const [companies, documentCounts] = await Promise.all([
-      this.companyTable.find({ order: { createdAt: 'DESC' } }),
+      this.companyTable.find({
+        where: user.role === UserRole.ADMIN ? { ownerId: user.id } : {},
+        order: { createdAt: 'DESC' },
+      }),
       this.documentTable
         .createQueryBuilder('document')
         .select('document.companyId', 'companyId')
@@ -116,11 +140,13 @@ export class CompanyService {
       id: company.id,
       name: company.name,
       oneTimeCapacity: company.oneTimeCapacity,
+      currency: company.currency,
       createdAt: company.createdAt,
       documentCount: counts.get(company.id) ?? 0,
     }));
   }
-  async enterCompanyData(dto: Documentdata) {
+  async enterCompanyData(dto: Documentdata, ownerId?: string) {
+    if (ownerId) await this.assertCompanyOwner(dto.companyId, ownerId);
     const chunks = this.createChunks(dto.text);
     const embeddings = await getEmbeddings(chunks.map((content) => content));
 
@@ -159,7 +185,9 @@ export class CompanyService {
       title: string;
       status?: Documentdata['status'];
     },
+    ownerId?: string,
   ) {
+    if (ownerId) await this.assertCompanyOwner(metadata.companyId, ownerId);
     if (!file) {
       throw new BadRequestException('A document file is required.');
     }
@@ -187,6 +215,12 @@ export class CompanyService {
       sourceType: 'upload',
       text: inspection.normalizedText,
     });
+  }
+
+  async assertCompanyOwner(companyId: string, ownerId: string) {
+    if (!await this.companyTable.existsBy({ id: companyId, ownerId })) {
+      throw new ForbiddenException('You do not have access to this company.');
+    }
   }
 
   async classificationHelper(query: string, conversationId?: string) {
@@ -229,23 +263,16 @@ export class CompanyService {
       () => this.getOrCreateConversation(companyId, userId, conversationId),
     );
 
-    console.log("Conversation : ",conversation);
-
     const intentHistory = await timing.measure(
       'history',
       () => this.getRecentConversationHistory(conversation.id),
     );
-
-    console.log("Intent History : ",intentHistory);
     const intentResult = await timing.measure('intent_detection', () =>
       detectCustomerIntent(question, {
         bookingFlowState: conversation.bookingFlowState,
         history: intentHistory,
       }),
     );
-
-    console.log("Intent Result : ",intentResult)
-
     if (
       intentResult.intent === 'book_appointment' ||
       intentResult.intent === 'provide_booking_details' ||
@@ -261,8 +288,6 @@ export class CompanyService {
           customerMessage: question,
         }),
       );
-
-      console.log("Booking Reply : ",bookingReply);
       return this.saveAndReturn(
         companyId,
         conversation,
@@ -314,7 +339,6 @@ export class CompanyService {
     const queryEmbedding = await timing.measure('query_embedding', () =>
       getQueryEmbedding(cacheQuestion),
     );
-    console.log("Query Embeddings : ",queryEmbedding)
     const semanticMatch = await timing.measure('semantic_cache_lookup', () =>
       this.semanticCache.findSimilar(companyId, queryEmbedding),
     );
@@ -400,22 +424,74 @@ export class CompanyService {
     return messages.reverse().map(({ role, content }) => ({ role, content }));
   }
 
+  async listConversations(companyId: string, userId: string) {
+    const conversations = await this.conversationTable.find({
+      where: { companyId, userId },
+      order: { updatedAt: 'DESC' },
+      take: 25,
+    });
+    if (!conversations.length) return [];
+
+    const latestMessages = await this.conversationMessageTable
+      .createQueryBuilder('message')
+      .distinctOn(['message.conversationId'])
+      .where('message.conversationId IN (:...ids)', {
+        ids: conversations.map(({ id }) => id),
+      })
+      .orderBy('message.conversationId', 'ASC')
+      .addOrderBy('message.createdAt', 'DESC')
+      .addOrderBy('message.id', 'DESC')
+      .getMany();
+    const previewByConversation = new Map(
+      latestMessages.map((message) => [message.conversationId, message.content]),
+    );
+    return conversations.map((conversation) => ({
+      id: conversation.id,
+      createdAt: conversation.createdAt,
+      updatedAt: conversation.updatedAt,
+      preview: previewByConversation.get(conversation.id) ?? 'New conversation',
+    }));
+  }
+
+  async conversationMessages(
+    companyId: string,
+    conversationId: string,
+    userId: string,
+  ) {
+    const conversation = await this.conversationTable.findOneBy({
+      id: conversationId,
+      companyId,
+      userId,
+    });
+    if (!conversation) {
+      throw new NotFoundException('Conversation not found for this company.');
+    }
+    return this.conversationMessageTable.find({
+      where: { conversationId },
+      select: { id: true, role: true, content: true, createdAt: true },
+      order: { createdAt: 'ASC', id: 'ASC' },
+    });
+  }
+
   private async saveConversationTurn(
     conversationId: string,
     question: string,
     answer: string,
   ) {
-    await this.conversationMessageTable.save([
-      this.conversationMessageTable.create({
-        conversationId,
-        role: 'user',
-        content: question,
-      }),
-      this.conversationMessageTable.create({
-        conversationId,
-        role: 'assistant',
-        content: answer,
-      }),
+    await Promise.all([
+      this.conversationMessageTable.save([
+        this.conversationMessageTable.create({
+          conversationId,
+          role: 'user',
+          content: question,
+        }),
+        this.conversationMessageTable.create({
+          conversationId,
+          role: 'assistant',
+          content: answer,
+        }),
+      ]),
+      this.conversationTable.update(conversationId, { updatedAt: new Date() }),
     ]);
   }
 
@@ -686,4 +762,17 @@ class PipelineTiming {
 
 function roundMilliseconds(value: number) {
   return Math.round(value * 10) / 10;
+}
+
+function validateCurrency(value: string) {
+  const currency = value?.trim().toUpperCase();
+  if (!/^[A-Z]{3}$/.test(currency)) {
+    throw new BadRequestException('Currency must be a three-letter ISO code such as USD or PKR.');
+  }
+  try {
+    new Intl.NumberFormat('en-US', { style: 'currency', currency }).format(0);
+  } catch {
+    throw new BadRequestException('Unsupported currency code.');
+  }
+  return currency;
 }

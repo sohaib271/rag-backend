@@ -1,10 +1,7 @@
-import { GoogleGenAI } from "@google/genai";
-
-const ai = new GoogleGenAI({
-  apiKey: 'AQ.Ab8RN6Ih2hl-wXTBzLRulHU69bRr7Pr5IqtkSu0ehmvRrswcLg',
-});
+import { getGeminiClient } from './gemini-client.js';
 
 export async function getEmbeddings(chunk: string[]) { 
+const ai = getGeminiClient();
 const response = await ai.models.embedContent({
   model: "gemini-embedding-001",
   contents: chunk,
@@ -20,6 +17,7 @@ return response.embeddings;
 }
 
 export async function getQueryEmbedding(query: string): Promise<number[]> {
+  const ai = getGeminiClient();
   const response = await ai.models.embedContent({
     model: 'gemini-embedding-001',
     contents: [query],

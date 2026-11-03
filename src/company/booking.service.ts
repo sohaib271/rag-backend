@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, LessThan, MoreThan, Not, Repository } from 'typeorm';
@@ -11,6 +11,7 @@ import {
 import { Company } from '../entities/company.entity.js';
 import { ServiceInfo } from '../entities/service-info.entity.js';
 import type { CustomerIntent, IntentEntities } from './genai/intent-detection.js';
+import { BookingEmailQueueService } from '../notifications/booking-email-queue.service.js';
 
 export type BookingReply = {
   answer: string;
@@ -19,6 +20,7 @@ export type BookingReply = {
 
 @Injectable()
 export class BookingService {
+  private readonly logger = new Logger(BookingService.name);
   private readonly timeZone: string;
   private readonly openingHour: number;
   private readonly closingHour: number;
@@ -33,6 +35,7 @@ export class BookingService {
     @InjectRepository(Conversation)
     private readonly conversations: Repository<Conversation>,
     private readonly dataSource: DataSource,
+    private readonly bookingEmailQueue: BookingEmailQueueService,
     config: ConfigService,
   ) {
     this.timeZone = config.get('BUSINESS_TIMEZONE', 'Asia/Karachi');
@@ -108,8 +111,6 @@ export class BookingService {
     draft.serviceId = service.id;
     draft.serviceName = service.name;
 
-    console.log("Draft : ",draft)
-
     if (!draft.date) {
       await this.saveDraft(conversation, BookingFlowState.COLLECTING_DETAILS, draft);
       return { answer: `Which date would you prefer for ${service.name}?` };
@@ -124,7 +125,6 @@ export class BookingService {
       draft.time,
       this.timeZone,
     );
-    console.log("Starts at : ",startsAt);
     if (!startsAt) {
       delete draft.date;
       delete draft.time;
@@ -183,7 +183,7 @@ export class BookingService {
         `Date: ${formatDateTime(startsAt, this.timeZone, 'date')}`,
         `Time: ${formatDateTime(startsAt, this.timeZone, 'time')}`,
         `Duration: ${service.avgTime} minutes`,
-        `Price: $${Number(service.price).toFixed(2)}`,
+        `Price: ${formatMoney(service.price, company.currency)}`,
         'Reply “yes” to confirm.',
       ].join('\n'),
     };
@@ -237,6 +237,7 @@ export class BookingService {
         existing.startsAt = startsAt;
         existing.endsAt = endsAt;
         existing.priceAtBooking = service.price;
+        existing.currencyAtBooking = company.currency;
         booking = await bookingRepository.save(existing);
       } else {
         booking = await bookingRepository.save(
@@ -248,6 +249,7 @@ export class BookingService {
             startsAt,
             endsAt,
             priceAtBooking: service.price,
+            currencyAtBooking: company.currency,
             status: BookingStatus.CONFIRMED,
           }),
         );
@@ -266,6 +268,19 @@ export class BookingService {
       return { answer: 'That slot was just taken. Please choose another time.' };
     }
 
+    try {
+      await this.bookingEmailQueue.enqueue(
+        result.booking.id,
+        draft.rescheduleBookingId ? 'rescheduled' : 'confirmed',
+      );
+    } catch (error) {
+      // Email infrastructure must never roll back or hide a committed booking.
+      this.logger.error(
+        `Could not queue emails for booking ${result.booking.id}`,
+        error instanceof Error ? error.stack : String(error),
+      );
+    }
+
     return {
       bookingId: result.booking.id,
       answer: [
@@ -274,6 +289,7 @@ export class BookingService {
         `Service: ${result.service.name}`,
         `Date: ${formatDateTime(result.booking.startsAt, this.timeZone, 'date')}`,
         `Time: ${formatDateTime(result.booking.startsAt, this.timeZone, 'time')}`,
+        'A confirmation email will be sent shortly.',
       ].join('\n'),
     };
   }
@@ -334,9 +350,12 @@ export class BookingService {
   }
 
   private async servicePrompt(companyId: string) {
-    const services = await this.services.find({ where: { companyId }, order: { name: 'ASC' } });
+    const [services, company] = await Promise.all([
+      this.services.find({ where: { companyId }, order: { name: 'ASC' } }),
+      this.companies.findOneByOrFail({ id: companyId }),
+    ]);
     if (!services.length) return 'Which service would you like to book?';
-    return `Which service would you like? Available services are ${services.map((service) => `${service.name} ($${Number(service.price).toFixed(2)})`).join(', ')}.`;
+    return `Which service would you like? Available services are ${services.map((service) => `${service.name} (${formatMoney(service.price, company.currency)})`).join(', ')}.`;
   }
 
   private async saveDraft(
@@ -403,6 +422,13 @@ export class BookingService {
 
 function extractBookingId(message: string) {
   return message.match(/\b(?:booking|appointment)\s*(?:id|#)?\s*(\d+)\b/i)?.[1];
+}
+
+function formatMoney(value: string | number, currency: string) {
+  return new Intl.NumberFormat('en-US', {
+    style: 'currency',
+    currency,
+  }).format(Number(value));
 }
 
 function preserveRelativeDate(

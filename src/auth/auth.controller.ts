@@ -18,6 +18,18 @@ export class AuthController {
     return { user: result.user };
   }
 
+  @Post('signup')
+  async signup(
+    @Body() body: { name: string; email: string; password: string },
+    @Res({ passthrough: true }) response: any,
+  ) {
+    const result = await this.auth.signUpAdmin(body);
+    response.cookie('access_token', result.token, {
+      httpOnly: true, sameSite: 'lax', secure: process.env.NODE_ENV === 'production', maxAge: 8 * 60 * 60 * 1000, path: '/',
+    });
+    return { user: result.user };
+  }
+
   @Post('logout')
   logout(@Res({ passthrough: true }) response: any) {
     response.clearCookie('access_token', { path: '/' });

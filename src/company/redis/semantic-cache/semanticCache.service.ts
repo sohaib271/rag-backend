@@ -85,7 +85,6 @@ export class SemanticCacheService implements OnApplicationBootstrap {
 
     const distance = Number(match.value.distance);
     const similarity = 1 - distance;
-    console.log("Similarity : ",similarity);
     if (similarity < this.minimumSimilarity) return null;
 
     return {

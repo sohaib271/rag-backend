@@ -18,11 +18,14 @@ import { ServiceInfo } from '../entities/service-info.entity.js';
 import { ServiceInfoService } from './service-info.service.js';
 import { Booking } from '../entities/booking.entity.js';
 import { BookingService } from './booking.service.js';
+import { NotificationsModule } from '../notifications/notifications.module.js';
+import { User } from '../entities/user.entity.js';
 
 @Module({
   imports: [
     AuthModule,
-    TypeOrmModule.forFeature([Company, DocumentChunk, Document, Conversation, ConversationMessage, DirectAnswer, ServiceInfo, Booking]),
+    NotificationsModule,
+    TypeOrmModule.forFeature([Company, DocumentChunk, Document, Conversation, ConversationMessage, DirectAnswer, ServiceInfo, Booking, User]),
   ],
   controllers: [CompanyController],
   providers: [

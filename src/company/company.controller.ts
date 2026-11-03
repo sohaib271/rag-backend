@@ -30,30 +30,30 @@ export class CompanyController {
   ) {}
 
   @Get()
-  listCompanies() {
-    return this.companyService.listCompanies();
+  listCompanies(@Req() request: AuthenticatedRequest) {
+    return this.companyService.listCompanies(request.user);
   }
 
   @Post()
   @Roles(UserRole.ADMIN)
-  createCompany(@Body() dto: CompanyDto) {
-    return this.companyService.createCompany(dto.name, dto.oneTimeCapacity);
+  createCompany(@Body() dto: CompanyDto, @Req() request: AuthenticatedRequest) {
+    return this.companyService.createCompany(dto.name, request.user.id, dto.oneTimeCapacity, dto.currency);
   }
 
   @Patch(':id')
   @Roles(UserRole.ADMIN)
-  updateCompany(@Param('id') id: string, @Body() dto: Partial<CompanyDto>) {
-    return this.companyService.updateCompany(id, dto);
+  updateCompany(@Param('id') id: string, @Body() dto: Partial<CompanyDto>, @Req() request: AuthenticatedRequest) {
+    return this.companyService.updateCompany(id, dto, request.user.id);
   }
 
   @Delete(':id')
   @Roles(UserRole.ADMIN)
-  deleteCompany(@Param('id') id: string) { return this.companyService.deleteCompany(id); }
+  deleteCompany(@Param('id') id: string, @Req() request: AuthenticatedRequest) { return this.companyService.deleteCompany(id, request.user.id); }
 
   @Post('data')
   @Roles(UserRole.ADMIN)
-  enterCompanyData(@Body() dto: Documentdata) {
-    return this.companyService.enterCompanyData(dto);
+  enterCompanyData(@Body() dto: Documentdata, @Req() request: AuthenticatedRequest) {
+    return this.companyService.enterCompanyData(dto, request.user.id);
   }
   @Post('data/upload')
   @Roles(UserRole.ADMIN)
@@ -61,8 +61,9 @@ export class CompanyController {
   uploadCompanyData(
     @UploadedFile() file: Express.Multer.File,
     @Body() body: { companyId: string; title: string; status?: Documentdata['status'] },
+    @Req() request: AuthenticatedRequest,
   ) {
-    return this.companyService.enterCompanyFileData(file, body);
+    return this.companyService.enterCompanyFileData(file, body, request.user.id);
   }
 
   @Post('question')
@@ -70,9 +71,31 @@ export class CompanyController {
     return this.companyService.userQuestion(dto.companyId, dto.query, dto.conversationId, request.user.id);
   }
 
+  @Get(':companyId/conversations')
+  listConversations(
+    @Param('companyId') companyId: string,
+    @Req() request: AuthenticatedRequest,
+  ) {
+    return this.companyService.listConversations(companyId, request.user.id);
+  }
+
+  @Get(':companyId/conversations/:conversationId/messages')
+  conversationMessages(
+    @Param('companyId') companyId: string,
+    @Param('conversationId') conversationId: string,
+    @Req() request: AuthenticatedRequest,
+  ) {
+    return this.companyService.conversationMessages(
+      companyId,
+      conversationId,
+      request.user.id,
+    );
+  }
+
   @Get('direct-answers')
   @Roles(UserRole.ADMIN)
-  listDirectAnswers(@Query('companyId') companyId: string) {
+  async listDirectAnswers(@Query('companyId') companyId: string, @Req() request: AuthenticatedRequest) {
+    await this.companyService.assertCompanyOwner(companyId, request.user.id);
     return this.directAnswers.list(companyId);
   }
 
@@ -83,19 +106,22 @@ export class CompanyController {
 
   @Post('direct-answers')
   @Roles(UserRole.ADMIN)
-  createDirectAnswer(@Body() input: DirectAnswerInput) {
+  async createDirectAnswer(@Body() input: DirectAnswerInput, @Req() request: AuthenticatedRequest) {
+    await this.companyService.assertCompanyOwner(input.companyId, request.user.id);
     return this.directAnswers.create(input);
   }
 
   @Patch('direct-answers/:id')
   @Roles(UserRole.ADMIN)
-  updateDirectAnswer(@Param('id') id: string, @Body() input: DirectAnswerUpdate) {
+  async updateDirectAnswer(@Param('id') id: string, @Body() input: DirectAnswerUpdate, @Req() request: AuthenticatedRequest) {
+    await this.companyService.assertCompanyOwner(await this.directAnswers.companyIdForAnswer(id), request.user.id);
     return this.directAnswers.update(id, input);
   }
 
   @Delete('direct-answers/:id')
   @Roles(UserRole.ADMIN)
-  deleteDirectAnswer(@Param('id') id: string) {
+  async deleteDirectAnswer(@Param('id') id: string, @Req() request: AuthenticatedRequest) {
+    await this.companyService.assertCompanyOwner(await this.directAnswers.companyIdForAnswer(id), request.user.id);
     return this.directAnswers.remove(id);
   }
 
@@ -110,17 +136,22 @@ export class CompanyController {
 
   @Post(':companyId/services')
   @Roles(UserRole.ADMIN)
-  createService(@Param('companyId') companyId: string, @Body() input: Omit<ServiceInfoInput, 'companyId'>) {
+  async createService(@Param('companyId') companyId: string, @Body() input: Omit<ServiceInfoInput, 'companyId'>, @Req() request: AuthenticatedRequest) {
+    await this.companyService.assertCompanyOwner(companyId, request.user.id);
     return this.serviceInfo.create({ companyId, ...input });
   }
 
   @Patch('services/:id')
   @Roles(UserRole.ADMIN)
-  updateService(@Param('id') id: string, @Body() input: Partial<Omit<ServiceInfoInput, 'companyId'>>) {
+  async updateService(@Param('id') id: string, @Body() input: Partial<Omit<ServiceInfoInput, 'companyId'>>, @Req() request: AuthenticatedRequest) {
+    await this.companyService.assertCompanyOwner(await this.serviceInfo.companyIdForService(id), request.user.id);
     return this.serviceInfo.update(id, input);
   }
 
   @Delete('services/:id')
   @Roles(UserRole.ADMIN)
-  deleteService(@Param('id') id: string) { return this.serviceInfo.remove(id); }
+  async deleteService(@Param('id') id: string, @Req() request: AuthenticatedRequest) {
+    await this.companyService.assertCompanyOwner(await this.serviceInfo.companyIdForService(id), request.user.id);
+    return this.serviceInfo.remove(id);
+  }
 }

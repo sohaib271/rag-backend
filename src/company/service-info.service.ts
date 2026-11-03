@@ -17,6 +17,12 @@ export class ServiceInfoService {
     return this.services.find({ where: { companyId }, order: { createdAt: 'ASC' } });
   }
 
+  async companyIdForService(id: string) {
+    const service = await this.services.findOne({ where: { id }, select: { companyId: true } });
+    if (!service) throw new NotFoundException('Service not found.');
+    return service.companyId;
+  }
+
   async create(input: ServiceInfoInput) {
     const values = this.validate(input);
     if (!await this.companies.existsBy({ id: input.companyId })) throw new NotFoundException('Company not found.');

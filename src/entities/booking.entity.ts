@@ -48,6 +48,9 @@ export class Booking {
   @Column({ name: 'price_at_booking', type: 'numeric', precision: 12, scale: 2 })
   priceAtBooking: string;
 
+  @Column({ name: 'currency_at_booking', type: 'varchar', length: 3, default: 'USD' })
+  currencyAtBooking: string;
+
   @Column({
     type: 'enum',
     enum: BookingStatus,

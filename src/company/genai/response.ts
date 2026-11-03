@@ -1,14 +1,10 @@
-import { GoogleGenAI } from "@google/genai";
-
-const ai = new GoogleGenAI({
-  apiKey: 'AQ.Ab8RN6Ih2hl-wXTBzLRulHU69bRr7Pr5IqtkSu0ehmvRrswcLg',
-});
+import { getGeminiClient } from './gemini-client.js';
 
 export async function getResponseFromGemini(
   context: string,
   query: string
 ) {
-  const response = await ai.models.generateContent({
+  const response = await getGeminiClient().models.generateContent({
     model: "gemini-3.5-flash-lite",
     contents: `
 Context:
@@ -27,6 +23,10 @@ If the context does not contain the answer, say that you do not have
 enough information and offer to connect the customer to an admin.
 
 Do not invent company policies.
+
+Never infer or convert a currency from the customer's locale or the business
+timezone. Preserve every currency symbol and currency code exactly as it
+appears in the supplied context.
 
 Keep the answer concise and suitable for WhatsApp.
       `.trim(),

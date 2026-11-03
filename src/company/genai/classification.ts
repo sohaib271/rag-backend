@@ -1,17 +1,14 @@
-import { GoogleGenAI, Type } from '@google/genai';
+import { Type } from '@google/genai';
+import { getGeminiClient } from './gemini-client.js';
 
 type Turn = { role: 'user' | 'assistant'; content: string };
-
-const ai = new GoogleGenAI({
-  apiKey: 'AQ.Ab8RN6Ih2hl-wXTBzLRulHU69bRr7Pr5IqtkSu0ehmvRrswcLg',
-});
 
 export async function classifyQuestion(history: Turn[], question: string) {
   if (history.length === 0) {
     return { kind: 'standalone', searchQuery: question };
   }
 
-  const response = await ai.models.generateContent({
+  const response = await getGeminiClient().models.generateContent({
     model: 'gemini-3.5-flash-lite',
     contents: `
 Recent conversation:

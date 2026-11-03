@@ -42,6 +42,18 @@ export class AuthService implements OnModuleInit {
   }
 
   async createCustomer(input: { name: string; email: string; password: string }) {
+    return this.createUser(input, UserRole.CUSTOMER);
+  }
+
+  async signUpAdmin(input: { name: string; email: string; password: string }) {
+    const user = await this.createUser(input, UserRole.ADMIN);
+    return { user, token: this.signToken(user) };
+  }
+
+  private async createUser(
+    input: { name: string; email: string; password: string },
+    role: UserRole,
+  ) {
     const name = input.name?.trim();
     const email = this.normalizeEmail(input.email);
     this.validateCredentials(name, email, input.password);
@@ -50,7 +62,7 @@ export class AuthService implements OnModuleInit {
       name,
       email,
       passwordHash: await this.hashPassword(input.password),
-      role: UserRole.CUSTOMER,
+      role,
     }));
     return this.toAuthUser(saved);
   }
