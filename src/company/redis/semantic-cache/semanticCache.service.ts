@@ -33,7 +33,7 @@ export class SemanticCacheService implements OnApplicationBootstrap {
     config: ConfigService,
   ) {
     this.minimumSimilarity = Number(
-      config.get('SEMANTIC_CACHE_MIN_SIMILARITY', '0.95'),
+      config.get('SEMANTIC_CACHE_MIN_SIMILARITY', '0.78'),
     );
   }
 
@@ -80,7 +80,10 @@ export class SemanticCacheService implements OnApplicationBootstrap {
       },
     );
 
+    console.log(" Semantic cache search result:", result);
+
     const match = result.documents[0];
+    console.log(" Semantic cache match:", match);
     if (!match) return null;
 
     const distance = Number(match.value.distance);
@@ -96,6 +99,7 @@ export class SemanticCacheService implements OnApplicationBootstrap {
   }
 
   async set(entry: SemanticCacheEntry) {
+    console.log('Setting semantic cache entry:', entry.embedding);
     if (!this.available) return;
 
     const key = `${this.keyPrefix}${entry.companyId}:${randomUUID()}`;
