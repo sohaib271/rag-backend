@@ -1,4 +1,5 @@
 import { BadRequestException, Injectable, Logger } from '@nestjs/common';
+import { randomUUID } from 'node:crypto';
 import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, LessThan, MoreThan, Not, Repository } from 'typeorm';
@@ -20,6 +21,7 @@ export type BookingReply = {
 
 @Injectable()
 export class BookingService {
+  private static readonly confirmationLifetimeMs = 15 * 60_000;
   private readonly logger = new Logger(BookingService.name);
   private readonly timeZone: string;
   private readonly openingHour: number;
@@ -169,6 +171,10 @@ export class BookingService {
 
     draft.startsAt = startsAt.toISOString();
     draft.endsAt = endsAt.toISOString();
+    draft.confirmationToken = randomUUID();
+    draft.confirmationExpiresAt = new Date(
+      Date.now() + BookingService.confirmationLifetimeMs,
+    ).toISOString();
     await this.saveDraft(
       conversation,
       BookingFlowState.AWAITING_CONFIRMATION,
@@ -194,9 +200,30 @@ export class BookingService {
       return { answer: 'There is no appointment waiting for confirmation.' };
     }
     const draft = conversation.bookingDraft ?? {};
-    if (!conversation.userId || !draft.serviceId || !draft.startsAt || !draft.endsAt) {
+    if (
+      !conversation.userId ||
+      !draft.serviceId ||
+      !draft.startsAt ||
+      !draft.endsAt ||
+      !draft.confirmationToken ||
+      !draft.confirmationExpiresAt
+    ) {
       await this.saveDraft(conversation, BookingFlowState.NONE, {});
       return { answer: 'The booking details were incomplete, so I cleared the draft. Please start again.' };
+    }
+
+    if (new Date(draft.confirmationExpiresAt).getTime() <= Date.now()) {
+      await this.saveDraft(conversation, BookingFlowState.COLLECTING_DETAILS, {
+        ...draft,
+        time: undefined,
+        startsAt: undefined,
+        endsAt: undefined,
+        confirmationToken: undefined,
+        confirmationExpiresAt: undefined,
+      });
+      return {
+        answer: 'This booking confirmation has expired. Please select a time again.',
+      };
     }
 
     const result = await this.dataSource.transaction(async (manager) => {
@@ -213,6 +240,21 @@ export class BookingService {
       const startsAt = new Date(draft.startsAt!);
       const endsAt = new Date(draft.endsAt!);
       const bookingRepository = manager.getRepository(Booking);
+      const existingBooking = await bookingRepository.findOneBy({
+        confirmationToken: draft.confirmationToken!,
+      });
+      if (existingBooking) {
+        conversation.bookingFlowState = BookingFlowState.NONE;
+        conversation.bookingDraft = {};
+        await manager.getRepository(Conversation).save(conversation);
+        return {
+          unavailable: false as const,
+          booking: existingBooking,
+          service,
+          alreadyConfirmed: true as const,
+        };
+      }
+
       const overlapCount = await this.overlapCount(
         bookingRepository,
         company.id,
@@ -238,6 +280,7 @@ export class BookingService {
         existing.endsAt = endsAt;
         existing.priceAtBooking = service.price;
         existing.currencyAtBooking = company.currency;
+        existing.confirmationToken = draft.confirmationToken!;
         booking = await bookingRepository.save(existing);
       } else {
         booking = await bookingRepository.save(
@@ -246,6 +289,7 @@ export class BookingService {
             userId: conversation.userId!,
             serviceId: service.id,
             conversationId: conversation.id,
+            confirmationToken: draft.confirmationToken!,
             startsAt,
             endsAt,
             priceAtBooking: service.price,
@@ -258,7 +302,12 @@ export class BookingService {
       conversation.bookingFlowState = BookingFlowState.NONE;
       conversation.bookingDraft = {};
       await manager.getRepository(Conversation).save(conversation);
-      return { unavailable: false as const, booking, service };
+      return {
+        unavailable: false as const,
+        booking,
+        service,
+        alreadyConfirmed: false as const,
+      };
     });
 
     if (result.unavailable) {
@@ -268,17 +317,19 @@ export class BookingService {
       return { answer: 'That slot was just taken. Please choose another time.' };
     }
 
-    try {
-      await this.bookingEmailQueue.enqueue(
-        result.booking.id,
-        draft.rescheduleBookingId ? 'rescheduled' : 'confirmed',
-      );
-    } catch (error) {
-      // Email infrastructure must never roll back or hide a committed booking.
-      this.logger.error(
-        `Could not queue emails for booking ${result.booking.id}`,
-        error instanceof Error ? error.stack : String(error),
-      );
+    if (!result.alreadyConfirmed) {
+      try {
+        await this.bookingEmailQueue.enqueue(
+          result.booking.id,
+          draft.rescheduleBookingId ? 'rescheduled' : 'confirmed',
+        );
+      } catch (error) {
+        // Email infrastructure must never roll back or hide a committed booking.
+        this.logger.error(
+          `Could not queue emails for booking ${result.booking.id}`,
+          error instanceof Error ? error.stack : String(error),
+        );
+      }
     }
 
     return {

@@ -39,6 +39,10 @@ export class Booking {
   @Column({ name: 'conversation_id', type: 'bigint', nullable: true })
   conversationId: string | null;
 
+  @Index('bookings_confirmation_token_unique', { unique: true })
+  @Column({ name: 'confirmation_token', type: 'uuid', nullable: true })
+  confirmationToken: string | null;
+
   @Column({ name: 'starts_at', type: 'timestamptz' })
   startsAt: Date;
 

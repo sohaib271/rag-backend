@@ -15,6 +15,8 @@ export type BookingDraft = {
   startsAt?: string;
   endsAt?: string;
   rescheduleBookingId?: string;
+  confirmationToken?: string;
+  confirmationExpiresAt?: string;
 };
 
 @Entity('conversations')
