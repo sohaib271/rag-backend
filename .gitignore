@@ -34,6 +34,9 @@ lerna-debug.log*
 # IDE - VSCode
 
 # dotenv environment variable files
+.env
+.env.*
+!.env.example
 .env.development.local
 .env.test.local
 .env.production.local
